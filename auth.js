@@ -1,51 +1,80 @@
+// this is the authentication / autorization middleware
+// environment vars from .env file
+const dotenv = require('dotenv');
+dotenv.config();
+
+
 const jwt = require("jsonwebtoken");
 
-const _SecretToken = "VeryTopSecretKey.UseRandomStringOfLongLength";
-const _TokenExpiryTime = "24h";
+// Function to issue a token
+exports.issueToken = function(user) {
+  const payload = {
+    _id: user._id,
+    email: user.email,
+    role: user.role
+  };
+  return jwt.sign(payload, process.env.SECRETTOKEN, { expiresIn: process.env.TOKENEXPIRY });
+};
 
+// Utility function to verify JWT using async/await
+async function verifyToken(token) {
+  return new Promise((resolve, reject) => {
+    jwt.verify(token, process.env.SECRETTOKEN, (err, decoded) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(decoded);
+      }
+    });
+  });
+}
+
+// Authorization middleware
 exports.authorize = function (roles = []) {
   if (!Array.isArray(roles)) roles = [roles];
 
-  return (req, res, next) => {
+  // returns a middleware function
+  return async (req, res, next) => {
     function sendError(msg) {
-      return req.res.status(403).json({
-        message: msg,
-      });
+      return res.status(403).json({ message: msg });
     }
 
     try {
-      const token = req.headers["Authorization"] || req.headers["authorization"];
+      const authHeader = req.headers["authorization"] || req.headers["Authorization"];
+      
+      // no token
+      if (!authHeader) 
+        return sendError("Error: No Token");
 
-      if (!token) return sendError("Error: No Token"); // Token does not exist
-      if (token.indexOf("Bearer") !== 0) return sendError("Error: Token format invalid"); // Wrong format
+      const token = authHeader.split(" ")[1];
 
-      const tokenString = token.split(" ")[1];
-      jwt.verify(tokenString, _SecretToken, (err, decodedToken) => {
-        if (err) {
-          console.log(err);
-          return sendError("Error: Broken Or Expired Token");
-        }
+      // invalid token format
+      if (!token) 
+        return sendError("Error: Token format invalid");
 
-        if (!decodedToken.role) return sendError("Error: Role missing");
-        const userRole = decodedToken.role;
-        if (roles.indexOf(userRole) === -1)
-          return sendError("Error: User not authorized");
+      const decodedToken = await verifyToken(token);
 
-        req.user = decodedToken;
-        next();
-      });
+      // invalid token, send error message and stop execution
+      if (!decodedToken.role) 
+        return sendError("Error: Role missing");
+
+      // check if user has the required role(s)
+      if (roles.length && !roles.includes(decodedToken.role)) {
+        return sendError("Error: User not authorized");
+      }
+
+      // all checks passed, user is authorized
+      // add user info to request object for later use
+      req.user = decodedToken;
+
+      // continue to next middleware or route handler
+      next();
     } catch (err) {
-      console.log(err);
-      return req.res.send.status(500).json({ message: "Server Error Occured" });
+      // error
+      console.log(">>>>", err);
+      return sendError("Error: Broken Or Expired Token");
     }
   };
-};
-
-exports.issueToken = function (user) {
-  var token = jwt.sign({ ...user, iss: "Node-Auth" }, _SecretToken, {
-    expiresIn: _TokenExpiryTime,
-  });
-  return token;
 };
 
 exports.Roles = {
