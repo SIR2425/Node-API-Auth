@@ -124,6 +124,7 @@ router.patch("/user/status", authorize(Roles.Admin), async (req, res) => {
     const query = { email: email }; // Use email for the query
     const update = { $set: { isActive: isActive } };
     
+    console.log(update);
     const db = await connectToDatabase();
     const result = await db.collection("users").updateOne(query, update);
 
